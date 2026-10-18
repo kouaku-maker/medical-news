@@ -1,0 +1,9 @@
+{
+  "name": "medical-news-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@upstash/redis": "^1.34.0",
+    "web-push": "^3.6.7"
+  }
+}
