@@ -9,90 +9,113 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0e4a5c">
 <style>
-  :root { --bg:#f3f6f8; --ink:#14262d; --sub:#5b6f77; --accent:#0e4a5c; --line:#d3dde2; --warn:#fff6e0; }
+  :root { --bg:#f3f6f8; --ink:#14262d; --sub:#5b6f77; --accent:#0e4a5c; --line:#d3dde2; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#10191d; --ink:#e6eef1; --sub:#93a7af; --accent:#5cc0d8; --line:#27373e; --warn:#2a2412; }
+    :root { --bg:#10191d; --ink:#e6eef1; --sub:#93a7af; --accent:#5cc0d8; --line:#27373e; }
   }
   * { box-sizing: border-box; }
   body { margin:0; padding:env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
     background:var(--bg); color:var(--ink);
     font:16px/1.7 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
-  main { max-width:32rem; margin:0 auto; padding:32px 0; }
-  h1 { font-size:1.4rem; margin:0 0 4px; }
-  p { margin:0 0 16px; color:var(--sub); }
-  .notice { background:var(--warn); border-left:3px solid var(--accent); padding:10px 14px; color:var(--ink); }
-  button { display:block; width:100%; padding:14px; margin:0 0 12px; font:inherit; font-weight:600;
-    border:1px solid var(--accent); border-radius:6px; background:var(--accent); color:var(--bg); }
-  button.ghost { background:transparent; color:var(--accent); }
+  main { max-width:36rem; margin:0 auto; padding:24px 0 48px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  h1 { font-size:1.25rem; margin:0; }
+  button { font:inherit; padding:8px 14px; border:1px solid var(--accent); border-radius:6px;
+    background:transparent; color:var(--accent); }
+  button.on { background:var(--accent); color:var(--bg); }
   button:disabled { opacity:.4; }
   button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
-  #status { min-height:1.7em; color:var(--ink); }
-  [hidden] { display:none; }
+  #chips { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 8px; }
+  #meta { color:var(--sub); font-size:.85rem; min-height:1.5em; }
+  ul { list-style:none; margin:8px 0 0; padding:0; }
+  li { padding:14px 0 14px 12px; border-top:1px solid var(--line); border-left:3px solid transparent; }
+  li.unread { border-left-color:var(--accent); }
+  li.unread a { font-weight:700; }
+  li small { display:block; color:var(--sub); }
+  a { color:var(--ink); text-decoration:none; }
+  a:visited { color:var(--sub); }
+  .empty { color:var(--sub); padding:24px 0; }
 </style>
 </head>
 <body>
 <main>
-  <h1>透析・CE 新着チェック</h1>
-  <p>PMDAや学会の新着を、毎朝1回お知らせします。</p>
-
-  <div id="install" class="notice" hidden>
-    iPhoneでは、Safariの共有ボタンから「ホーム画面に追加」し、追加したアイコンから開き直してください。通知はそこから設定できます。
-  </div>
-
-  <button id="on">通知をオンにする</button>
-  <button id="test" class="ghost" disabled>テスト通知を送る</button>
-  <div id="status" role="status"></div>
+  <header>
+    <h1>透析・CE 新着チェック</h1>
+    <button id="refresh">更新</button>
+  </header>
+  <div id="chips"></div>
+  <div id="meta" role="status"></div>
+  <button id="readall" class="on" hidden>すべて既読にする</button>
+  <ul id="list"></ul>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const status = (t) => ($('status').textContent = t);
-const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-const isIOS = /iPhone|iPad/.test(navigator.userAgent);
-if (isIOS && !standalone) { $('install').hidden = false; $('on').disabled = true; }
+let data = { items: [], sources: [], meta: null }, filter = 'all';
 
-const b64 = (s) => {
-  const p = '='.repeat((4 - (s.length % 4)) % 4);
-  const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
-};
+const readUpTo = () => Number(localStorage.getItem('readUpTo') || 0);
+const fmt = (t) => new Date(t).toLocaleDateString('ja-JP', { year:'numeric', month:'numeric', day:'numeric' });
+const safe = (u) => /^https?:\/\//.test(u) ? u : '#';
 
-async function currentSub() {
-  const reg = await navigator.serviceWorker.ready;
-  return reg.pushManager.getSubscription();
+function render() {
+  const base = readUpTo();
+  const items = data.items.filter((i) => filter === 'all' || i.source === filter);
+  const unread = data.items.filter((i) => i.added > base).length;
+
+  $('chips').replaceChildren(...[{ id:'all', name:'すべて' }, ...data.sources].map((s) => {
+    const b = document.createElement('button');
+    b.textContent = s.name;
+    if (s.id === filter) b.className = 'on';
+    b.onclick = () => { filter = s.id; render(); };
+    return b;
+  }));
+
+  $('readall').hidden = unread === 0;
+  $('readall').textContent = `すべて既読にする(未読${unread}件)`;
+  const m = data.meta;
+  $('meta').textContent = m
+    ? `最終更新: ${new Date(m.updated).toLocaleString('ja-JP')}` + (m.errors.length ? ` / 取得に失敗: ${m.errors.join(', ')}` : '')
+    : '';
+
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = '新着はまだありません。「更新」を押して取得してください。';
+    return $('list').replaceChildren(p);
+  }
+  $('list').replaceChildren(...items.map((i) => {
+    const li = document.createElement('li');
+    if (i.added > base) li.className = 'unread';
+    const a = document.createElement('a');
+    a.href = safe(i.link); a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = i.title;
+    const s = document.createElement('small');
+    s.textContent = `${fmt(i.date)}  ${i.sourceName}`;
+    li.append(a, s);
+    return li;
+  }));
 }
 
-async function enable() {
+async function load() {
   try {
-    await navigator.serviceWorker.register('/sw.js');
-    const perm = await Notification.requestPermission();
-    if (perm !== 'granted') return status('通知が許可されていません。設定アプリの通知から許可してください。');
-    const { key } = await (await fetch('/api/vapid-key')).json();
-    if (!key) return status('サーバーの設定(VAPIDキー)が未完了です。');
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(key) });
-    const r = await fetch('/api/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub) });
-    if (!r.ok) throw new Error('subscribe failed');
-    $('test').disabled = false;
-    status('通知をオンにしました。');
-  } catch (e) { status('設定に失敗しました。もう一度試してください。'); }
+    data = await (await fetch('/api/items')).json();
+    if (!localStorage.getItem('readUpTo')) localStorage.setItem('readUpTo', Date.now());
+    render();
+  } catch (e) { $('meta').textContent = '読み込みに失敗しました。通信を確認してください。'; }
 }
 
-async function test() {
-  const sub = await currentSub();
-  if (!sub) return status('先に通知をオンにしてください。');
-  const r = await fetch('/api/send-test', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub) });
-  status(r.ok ? 'テスト通知を送りました。数秒待ってください。' : '送信に失敗しました。もう一度オンにしてください。');
-}
+$('refresh').onclick = async () => {
+  $('refresh').disabled = true;
+  try {
+    const r = await (await fetch('/api/refresh', { method:'POST' })).json();
+    await load();
+    if (r.skipped) $('meta').textContent += ' / 直前に更新済みです(5分に1回まで)';
+  } catch (e) { $('meta').textContent = '更新に失敗しました。'; }
+  $('refresh').disabled = false;
+};
+$('readall').onclick = () => { localStorage.setItem('readUpTo', Date.now()); render(); };
 
-$('on').onclick = enable;
-$('test').onclick = test;
-if ('serviceWorker' in navigator && 'PushManager' in window) {
-  navigator.serviceWorker.register('/sw.js');
-  currentSub().then((s) => { if (s) { $('test').disabled = false; status('通知はオンです。'); } });
-} else if (!isIOS || standalone) {
-  status('このブラウザは通知に対応していません。');
-}
+load();
 </script>
 </body>
 </html>
