@@ -1,0 +1,12 @@
+const redis = require('./_redis');
+const sources = require('./_sources');
+
+module.exports = async (req, res) => {
+  const [items, meta] = await Promise.all([redis.get('items'), redis.get('meta')]);
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(200).json({
+    items: items || [],
+    meta: meta || null,
+    sources: sources.map(({ id, name }) => ({ id, name })),
+  });
+};
