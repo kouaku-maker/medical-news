@@ -25,15 +25,24 @@
   button.on { background:var(--accent); color:var(--bg); }
   button:disabled { opacity:.4; }
   button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
-  #chips { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 8px; }
+  #filterbar { margin:16px 0 8px; }
+  #filterbtn { display:inline-flex; align-items:center; gap:6px; }
+  #filterpanel:not([hidden]) { display:flex; flex-direction:column; gap:6px; margin:0 0 8px; padding:8px;
+    border:1px solid var(--line); border-radius:6px; }
+  #filterpanel button { text-align:left; border-color:var(--line); }
+  #filterpanel button.on { border-color:var(--accent); }
   #meta { color:var(--sub); font-size:.85rem; min-height:1.5em; }
   ul { list-style:none; margin:8px 0 0; padding:0; }
-  li { padding:14px 0 14px 12px; border-top:1px solid var(--line); border-left:3px solid transparent; }
+  li { display:flex; align-items:flex-start; gap:8px; padding:14px 0 14px 12px; border-top:1px solid var(--line); border-left:3px solid transparent; }
   li.unread { border-left-color:var(--accent); }
   li.unread a { font-weight:700; }
   li small { display:block; color:var(--sub); }
   a { color:var(--ink); text-decoration:none; }
   a:visited { color:var(--sub); }
+  .body { flex:1; min-width:0; }
+  .star { flex:none; width:44px; height:44px; padding:0; margin:-8px 0 0; border:0; background:transparent;
+    color:var(--sub); font-size:1.4rem; line-height:1; }
+  .star[aria-pressed="true"] { color:var(--accent); }
   details { margin:8px 0 0; }
   summary { color:var(--accent); padding:6px 0; }
   #srclist { margin:4px 0 12px; }
@@ -52,7 +61,13 @@
     <h1>透析・CE 新着チェック</h1>
     <button id="refresh">更新</button>
   </header>
-  <div id="chips"></div>
+  <div id="filterbar">
+    <button id="filterbtn" aria-expanded="false" aria-controls="filterpanel">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <span>絞り込み:</span> <span id="filterlabel">すべて</span>
+    </button>
+  </div>
+  <div id="filterpanel" hidden></div>
   <details id="manage">
     <summary>取得するサイトを管理</summary>
     <ul id="srclist"></ul>
@@ -70,6 +85,10 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let data = { items: [], sources: [], meta: null }, filter = 'all';
+const loadFavs = () => { try { return JSON.parse(localStorage.getItem('favs') || '[]'); } catch (e) { return []; } };
+let favs = loadFavs();
+const isFav = (l) => favs.some((f) => f.link === l);
+const setPanel = (open) => { $('filterpanel').hidden = !open; $('filterbtn').setAttribute('aria-expanded', String(open)); };
 
 const readUpTo = () => Number(localStorage.getItem('readUpTo') || 0);
 const fmt = (t) => new Date(t).toLocaleDateString('ja-JP', { year:'numeric', month:'numeric', day:'numeric' });
@@ -77,14 +96,17 @@ const safe = (u) => /^https?:\/\//.test(u) ? u : '#';
 
 function render() {
   const base = readUpTo();
-  const items = data.items.filter((i) => filter === 'all' || i.source === filter);
+  const items = filter === 'fav' ? favs : data.items.filter((i) => filter === 'all' || i.source === filter);
   const unread = data.items.filter((i) => i.added > base).length;
 
-  $('chips').replaceChildren(...[{ id:'all', name:'すべて' }, ...data.sources].map((s) => {
+  const opts = [{ id:'all', name:'すべて' }, { id:'fav', name:'★ お気に入り' }, ...data.sources];
+  $('filterlabel').textContent = (opts.find((s) => s.id === filter) || opts[0]).name;
+  $('filterbtn').className = filter === 'all' ? '' : 'on';
+  $('filterpanel').replaceChildren(...opts.map((s) => {
     const b = document.createElement('button');
     b.textContent = s.name;
     if (s.id === filter) b.className = 'on';
-    b.onclick = () => { filter = s.id; render(); };
+    b.onclick = () => { filter = s.id; setPanel(false); render(); };
     return b;
   }));
 
@@ -98,7 +120,7 @@ function render() {
   if (!items.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = '新着はまだありません。「更新」を押して取得してください。';
+    p.textContent = filter === 'fav' ? 'お気に入りはまだありません。記事の☆を押すと保存されます。' : '新着はまだありません。「更新」を押して取得してください。';
     return $('list').replaceChildren(p);
   }
   $('list').replaceChildren(...items.map((i) => {
@@ -109,7 +131,17 @@ function render() {
     a.textContent = i.title;
     const s = document.createElement('small');
     s.textContent = `${fmt(i.date)}  ${i.sourceName}`;
-    li.append(a, s);
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.append(a, s);
+    const on = isFav(i.link);
+    const st = document.createElement('button');
+    st.className = 'star';
+    st.textContent = on ? '★' : '☆';
+    st.setAttribute('aria-pressed', String(on));
+    st.setAttribute('aria-label', on ? 'お気に入りを外す' : 'お気に入りに追加');
+    st.onclick = () => toggleFav(i);
+    li.append(body, st);
     return li;
   }));
 }
@@ -180,7 +212,18 @@ async function removeSource(x) {
   if (r.ok) { if (filter === x.id) filter = 'all'; await Promise.all([load(), loadSources()]); }
 }
 
+function toggleFav(i) {
+  const next = isFav(i.link)
+    ? favs.filter((f) => f.link !== i.link)
+    : [{ link:i.link, title:i.title, date:i.date, source:i.source, sourceName:i.sourceName, favAt:Date.now() }, ...favs].slice(0, 500);
+  try { localStorage.setItem('favs', JSON.stringify(next)); }
+  catch (e) { $('meta').textContent = '保存できませんでした。ブラウザの設定を確認してください。'; return; }
+  favs = next;
+  render();
+}
+
 $('add').onclick = addSource;
+$('filterbtn').onclick = () => setPanel($('filterpanel').hidden);
 $('manage').addEventListener('toggle', () => { if ($('manage').open) loadSources(); });
 load();
 </script>
