@@ -1,8 +1,8 @@
 const redis = require('./_redis');
-const sources = require('./_sources');
+const { getSources } = require('./_refresh');
 
 module.exports = async (req, res) => {
-  const [items, meta] = await Promise.all([redis.get('items'), redis.get('meta')]);
+  const [items, meta, sources] = await Promise.all([redis.get('items'), redis.get('meta'), getSources()]);
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).json({
     items: items || [],

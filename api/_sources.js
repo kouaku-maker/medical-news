@@ -1,5 +1,6 @@
 module.exports = [
   { id: 'pmda-safety', name: 'PMDA 安全対策', url: 'https://www.pmda.go.jp/rss_018.xml' },
+  { id: 'jsdt', name: '日本透析医学会', url: 'https://www.jsdt.or.jp/index_rss2.xml' },
 
   // RSSがあるサイトは、1行足すだけ:
   // { id: 'pmda-all', name: 'PMDA すべて', url: 'https://www.pmda.go.jp/rss_015.xml' },

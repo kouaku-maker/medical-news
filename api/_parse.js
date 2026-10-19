@@ -20,4 +20,9 @@ function parseFeed(xml) {
   }).filter((i) => i.title && i.link);
 }
 
-module.exports = { parseFeed };
+// フィード自体のタイトル(最初の記事より前にある title)
+function feedTitle(xml) {
+  return tag(xml.split(/<(?:item|entry)[\s>]/)[0], 'title');
+}
+
+module.exports = { parseFeed, feedTitle };

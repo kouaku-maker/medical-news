@@ -1,25 +1,29 @@
 const redis = require('./_redis');
-const sources = require('./_sources');
+const staticSources = require('./_sources');
 const { parseFeed } = require('./_parse');
+const { fetchText } = require('./_http');
 
 const MAX_ITEMS = 300;   // 保存する件数
 const COOLDOWN = 300;    // 更新の最短間隔(秒)
 
+// 固定のサイト(_sources.js)+ 画面から追加したサイト
+async function getSources() {
+  const custom = (await redis.get('sources:custom')) || [];
+  return [...staticSources, ...custom.map((s) => ({ ...s, custom: true }))];
+}
+
 async function fetchSource(s) {
-  const r = await fetch(s.url, {
-    headers: { 'User-Agent': 'medical-news-app/0.2' },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const text = await r.text();
+  const text = await fetchText(s.url);
   const list = s.parse ? s.parse(text) : parseFeed(text);
   return list.map((i) => ({ ...i, source: s.id, sourceName: s.name }));
 }
 
-async function refresh() {
-  const got = await redis.set('refresh:lock', 1, { nx: true, ex: COOLDOWN });
-  if (!got) return { skipped: true };
-
+async function refresh({ force = false } = {}) {
+  if (!force) {
+    const got = await redis.set('refresh:lock', 1, { nx: true, ex: COOLDOWN });
+    if (!got) return { skipped: true };
+  }
+  const sources = await getSources();
   const results = await Promise.allSettled(sources.map(fetchSource));
   const map = new Map(((await redis.get('items')) || []).map((i) => [i.link, i]));
   const now = Date.now();
@@ -27,7 +31,7 @@ async function refresh() {
   const errors = [];
 
   results.forEach((r, idx) => {
-    if (r.status === 'rejected') { errors.push(sources[idx].id); return; }
+    if (r.status === 'rejected') { errors.push(sources[idx].name); return; }
     for (const i of r.value) {
       if (!map.has(i.link)) { map.set(i.link, { ...i, date: i.date || now, added: now }); added++; }
     }
@@ -39,4 +43,9 @@ async function refresh() {
   return { added, errors };
 }
 
-module.exports = { refresh };
+async function removeSourceItems(id) {
+  const items = ((await redis.get('items')) || []).filter((i) => i.source !== id);
+  await redis.set('items', items);
+}
+
+module.exports = { refresh, getSources, removeSourceItems };
