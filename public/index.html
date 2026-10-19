@@ -34,6 +34,15 @@
   li small { display:block; color:var(--sub); }
   a { color:var(--ink); text-decoration:none; }
   a:visited { color:var(--sub); }
+  details { margin:8px 0 0; }
+  summary { color:var(--accent); padding:6px 0; }
+  #srclist { margin:4px 0 12px; }
+  #srclist li { border:0; padding:6px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  #srclist button { padding:4px 10px; font-size:.85rem; }
+  input { width:100%; font:inherit; padding:10px; margin:0 0 8px; border:1px solid var(--line);
+    border-radius:6px; background:transparent; color:var(--ink); }
+  input:focus-visible { outline:3px solid var(--accent); outline-offset:1px; }
+  #msg { min-height:1.5em; font-size:.9rem; }
   .empty { color:var(--sub); padding:24px 0; }
 </style>
 </head>
@@ -44,6 +53,15 @@
     <button id="refresh">更新</button>
   </header>
   <div id="chips"></div>
+  <details id="manage">
+    <summary>取得するサイトを管理</summary>
+    <ul id="srclist"></ul>
+    <input id="u" type="url" inputmode="url" placeholder="サイトまたはRSSのURL" autocomplete="off">
+    <input id="n" type="text" placeholder="表示名(省略するとサイトの名前)">
+    <input id="pw" type="password" placeholder="管理パスワード" autocomplete="current-password">
+    <button id="add" class="on">サイトを追加</button>
+    <div id="msg" role="status"></div>
+  </details>
   <div id="meta" role="status"></div>
   <button id="readall" class="on" hidden>すべて既読にする</button>
   <ul id="list"></ul>
@@ -115,6 +133,55 @@ $('refresh').onclick = async () => {
 };
 $('readall').onclick = () => { localStorage.setItem('readUpTo', Date.now()); render(); };
 
+
+async function loadSources() {
+  const d = await (await fetch('/api/sources')).json();
+  $('srclist').replaceChildren(...d.sources.map((x) => {
+    const li = document.createElement('li');
+    const t = document.createElement('span');
+    t.textContent = x.name;
+    li.append(t);
+    if (x.custom) {
+      const b = document.createElement('button');
+      b.textContent = '削除';
+      b.onclick = () => removeSource(x);
+      li.append(b);
+    }
+    return li;
+  }));
+}
+
+const headers = () => ({ 'Content-Type':'application/json', 'x-admin-password': $('pw').value });
+$('pw').value = localStorage.getItem('pw') || '';
+
+async function addSource() {
+  $('add').disabled = true;
+  $('msg').textContent = '確認しています…';
+  try {
+    const r = await fetch('/api/sources', { method:'POST', headers: headers(),
+      body: JSON.stringify({ url: $('u').value.trim(), name: $('n').value.trim() }) });
+    const d = await r.json();
+    if (!r.ok) { $('msg').textContent = d.error || '追加に失敗しました。'; }
+    else {
+      localStorage.setItem('pw', $('pw').value);
+      $('msg').textContent = `「${d.source.name}」を追加しました(${d.count}件を取得)。`;
+      $('u').value = ''; $('n').value = '';
+      await Promise.all([load(), loadSources()]);
+    }
+  } catch (e) { $('msg').textContent = '通信に失敗しました。'; }
+  $('add').disabled = false;
+}
+
+async function removeSource(x) {
+  if (!confirm(`「${x.name}」を削除しますか?取得済みの記事も消えます。`)) return;
+  const r = await fetch('/api/sources', { method:'DELETE', headers: headers(), body: JSON.stringify({ id: x.id }) });
+  const d = await r.json();
+  $('msg').textContent = r.ok ? '削除しました。' : (d.error || '削除に失敗しました。');
+  if (r.ok) { if (filter === x.id) filter = 'all'; await Promise.all([load(), loadSources()]); }
+}
+
+$('add').onclick = addSource;
+$('manage').addEventListener('toggle', () => { if ($('manage').open) loadSources(); });
 load();
 </script>
 </body>
