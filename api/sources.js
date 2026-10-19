@@ -22,12 +22,18 @@ module.exports = async (req, res) => {
       if (!isSafeUrl(url)) return res.status(400).json({ error: 'URLが正しくありません(http:// か https:// から始まるもの)' });
       if (custom.length >= MAX_CUSTOM) return res.status(400).json({ error: `追加できるのは${MAX_CUSTOM}件までです` });
 
-      let found;
-      try { found = await discover(url); }
+      let feeds;
+      try { feeds = await discover(url); }
       catch (e) { return res.status(400).json({ error: 'サイトを取得できませんでした。URLを確認してください' }); }
-      if (!found) return res.status(400).json({ error: 'このサイトにはRSSが見つかりませんでした' });
-      if ((await getSources()).some((s) => s.url === found.url)) {
-        return res.status(400).json({ error: 'すでに登録されています' });
+      if (!feeds.length) return res.status(400).json({ error: 'このサイトにはRSSが見つかりませんでした' });
+
+      const have = new Set((await getSources()).map((s) => s.url));
+      const found = feeds.find((f) => !have.has(f.url));
+      if (!found) {
+        const specific = new URL(url).pathname !== '/';
+        return res.status(400).json({ error: specific
+          ? 'このページ専用のRSSは見つかりませんでした(見つかったRSSは登録済みです)'
+          : 'すでに登録されています' });
       }
 
       const id = 'c' + crypto.createHash('sha1').update(found.url).digest('hex').slice(0, 8);
