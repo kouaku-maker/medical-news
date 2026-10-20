@@ -88,6 +88,19 @@ let data = { items: [], sources: [], meta: null }, filter = 'all';
 const loadFavs = () => { try { return JSON.parse(localStorage.getItem('favs') || '[]'); } catch (e) { return []; } };
 let favs = loadFavs();
 const isFav = (l) => favs.some((f) => f.link === l);
+const loadRead = () => { try { return JSON.parse(localStorage.getItem('readLinks') || '[]'); } catch (e) { return []; } };
+let readLinks = loadRead();
+const isUnread = (i) => i.added > readUpTo() && !readLinks.includes(i.link);
+const markRead = (link) => {
+  if (readLinks.includes(link)) return;
+  readLinks = [...readLinks, link].slice(-1000);
+  try { localStorage.setItem('readLinks', JSON.stringify(readLinks)); } catch (e) { /* 保存できなくても動作は続ける */ }
+};
+function updateUnread() {
+  const n = data.items.filter(isUnread).length;
+  $('readall').hidden = n === 0;
+  $('readall').textContent = `すべて既読にする(未読${n}件)`;
+}
 const setPanel = (open) => { $('filterpanel').hidden = !open; $('filterbtn').setAttribute('aria-expanded', String(open)); };
 
 const readUpTo = () => Number(localStorage.getItem('readUpTo') || 0);
@@ -97,7 +110,6 @@ const safe = (u) => /^https?:\/\//.test(u) ? u : '#';
 function render() {
   const base = readUpTo();
   const items = filter === 'fav' ? favs : data.items.filter((i) => filter === 'all' || i.source === filter);
-  const unread = data.items.filter((i) => i.added > base).length;
 
   const opts = [{ id:'all', name:'すべて' }, { id:'fav', name:'★ お気に入り' }, ...data.sources];
   $('filterlabel').textContent = (opts.find((s) => s.id === filter) || opts[0]).name;
@@ -110,8 +122,7 @@ function render() {
     return b;
   }));
 
-  $('readall').hidden = unread === 0;
-  $('readall').textContent = `すべて既読にする(未読${unread}件)`;
+  updateUnread();
   const m = data.meta;
   $('meta').textContent = m
     ? `最終更新: ${new Date(m.updated).toLocaleString('ja-JP')}` + (m.errors.length ? ` / 取得に失敗: ${m.errors.join(', ')}` : '')
@@ -125,10 +136,12 @@ function render() {
   }
   $('list').replaceChildren(...items.map((i) => {
     const li = document.createElement('li');
-    if (i.added > base) li.className = 'unread';
+    if (isUnread(i)) li.className = 'unread';
     const a = document.createElement('a');
     a.href = safe(i.link); a.target = '_blank'; a.rel = 'noopener';
     a.textContent = i.title;
+    // 開いた記事は、その場で既読にする
+    a.onclick = a.onauxclick = () => { markRead(i.link); li.classList.remove('unread'); updateUnread(); };
     const s = document.createElement('small');
     s.textContent = `${fmt(i.date)}  ${i.sourceName}`;
     const body = document.createElement('div');
@@ -163,7 +176,7 @@ $('refresh').onclick = async () => {
   } catch (e) { $('meta').textContent = '更新に失敗しました。'; }
   $('refresh').disabled = false;
 };
-$('readall').onclick = () => { localStorage.setItem('readUpTo', Date.now()); render(); };
+$('readall').onclick = () => { localStorage.setItem('readUpTo', Date.now()); readLinks = []; localStorage.removeItem('readLinks'); render(); };
 
 
 async function loadSources() {
