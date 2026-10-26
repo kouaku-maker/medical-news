@@ -109,7 +109,9 @@ const safe = (u) => /^https?:\/\//.test(u) ? u : '#';
 
 function render() {
   const base = readUpTo();
-  const items = filter === 'fav' ? favs : data.items.filter((i) => filter === 'all' || i.source === filter);
+  // 未読を上に(それぞれの中は新しい順のまま)
+  const items = (filter === 'fav' ? favs : data.items.filter((i) => filter === 'all' || i.source === filter))
+    .slice().sort((a, b) => isUnread(b) - isUnread(a));
 
   const opts = [{ id:'all', name:'すべて' }, { id:'fav', name:'★ お気に入り' }, ...data.sources];
   $('filterlabel').textContent = (opts.find((s) => s.id === filter) || opts[0]).name;
@@ -125,7 +127,7 @@ function render() {
   updateUnread();
   const m = data.meta;
   $('meta').textContent = m
-    ? `最終更新: ${new Date(m.updated).toLocaleString('ja-JP')}` + (m.errors.length ? ` / 取得に失敗: ${m.errors.join(', ')}` : '')
+    ? `最終更新: ${new Date(m.updated).toLocaleString('ja-JP')} / 自動更新: ${m.lastAuto ? new Date(m.lastAuto).toLocaleString('ja-JP') : 'まだありません'}` + (m.errors.length ? ` / 取得に失敗: ${m.errors.join(', ')}` : '')
     : '';
 
   if (!items.length) {
